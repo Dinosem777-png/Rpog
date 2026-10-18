@@ -1,0 +1,41 @@
+name: Inspect game archive
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Inspect ZIP contents
+        shell: bash
+        run: |
+          python - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          archives = list(Path(".").glob("*.zip"))
+          if not archives:
+              raise SystemExit("No .zip archive found in the repository root.")
+          archive = archives[0]
+          print(f"Archive: {archive.name} ({archive.stat().st_size} bytes)")
+          with zipfile.ZipFile(archive) as z:
+              names = z.namelist()
+              print(f"Entries: {len(names)}")
+              print("\nFirst 250 paths:")
+              for name in names[:250]:
+                  print(name)
+              summary = Path("summary.txt")
+              summary.write_text(
+                  f"Archive: {archive.name}\nEntries: {len(names)}\n\n" +
+                  "\n".join(names[:1000]),
+                  encoding="utf-8"
+              )
+          PY
+          cat summary.txt >> "$GITHUB_STEP_SUMMARY"
