@@ -32,10 +32,17 @@ jobs:
           unzip -q "$archive" -d extracted
           root="$(find extracted -mindepth 1 -maxdepth 1 -type d | head -n 1)"
           test -n "$root"
-          test -d "$root/Скрипт"
-          cp -a "$root/Скрипт/." build/
-          if test -f "$root/База/moh_2008-02-26_21-44.sql"; then
-            cp "$root/База/moh_2008-02-26_21-44.sql" build/database.sql
+
+          # The original archive stores Cyrillic directory names as #UXXXX escapes.
+          # Locate the application by its stable files instead of relying on the
+          # decoded Russian directory names.
+          script_dir="$(dirname "$(find "$root" -type f -name 'conf.php' -print -quit)")"
+          sql_file="$(find "$root" -type f -name '*.sql' -print -quit)"
+          test -d "$script_dir"
+          test -f "$script_dir/conf.php"
+          cp -a "$script_dir/." build/
+          if test -n "$sql_file"; then
+            cp "$sql_file" build/database.sql
           fi
 
       - name: Install compatibility layer
