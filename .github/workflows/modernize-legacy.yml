@@ -1,0 +1,123 @@
+name: Build PHP 8 candidate
+
+on:
+  push:
+    branches: [modernization]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PHP 8
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: mysqli
+          coverage: none
+
+      - name: Extract original game
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          archive="$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)"
+          test -n "$archive"
+          unzip -q "$archive" -d extracted
+          root="$(find extracted -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+          test -n "$root"
+
+          # The original archive stores Cyrillic directory names as #UXXXX escapes.
+          # Locate the application by stable files instead of decoded Russian names.
+          script_dir="$(dirname "$(find "$root" -type f -name 'conf.php' -print -quit)")"
+          sql_file="$(find "$root" -type f -name '*.sql' -print -quit)"
+          test -d "$script_dir"
+          test -f "$script_dir/conf.php"
+          cp -a "$script_dir/." build/
+          if test -n "$sql_file"; then
+            cp "$sql_file" build/database.sql
+          fi
+
+      - name: Install compatibility layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp modernization/compat.php build/compat.php
+          cp modernization/conf.local.php.example build/conf.local.php.example
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          conf = Path('build/conf.php')
+          if not conf.exists():
+              raise SystemExit('build/conf.php was not found')
+          text = conf.read_text(encoding='cp1251', errors='replace')
+          if 'compat.php' not in text:
+              text = text.replace('<?', '<?php\nrequire_once __DIR__ . "/compat.php";\n', 1)
+          if 'conf.local.php' not in text:
+              marker = 'mysql_select_db($db_name,$data);'
+              text = text.replace(marker, "if (file_exists(__DIR__ . '/conf.local.php')) { require __DIR__ . '/conf.local.php'; }\n" + marker, 1)
+          conf.write_text(text, encoding='cp1251')
+
+          # Modern phones are supported; remove the original IE-only gate.
+          enter = Path('build/enter.php')
+          if enter.exists():
+              text = enter.read_text(encoding='cp1251', errors='replace')
+              pattern = re.compile(r"\n\s*\$agent=getenv\(\"HTTP_USER_AGENT\"\);.*?\n\s*if\(\$login!='Copyright'\)\{", re.S)
+              replacement = "\n        if($login!='Copyright'){"
+              patched, count = pattern.subn(replacement, text, count=1)
+              if count:
+                  enter.write_text(patched, encoding='cp1251')
+
+          # Add a mobile viewport only to real HTML pages. Avoid config files
+          # whose PHP error strings contain literal <head> markup.
+          mobile_files = {'index.php', 'game.php', 'main.php', 'enter.php', 'reg.php', 'news.php', 'topp.php'}
+          for name in mobile_files:
+              path = Path('build') / name
+              if not path.exists():
+                  continue
+              text = path.read_text(encoding='cp1251', errors='replace')
+              if 'name="viewport"' not in text.lower() and '<head' in text.lower():
+                  text = re.sub(r'(<head[^>]*>)', r'\1\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', text, count=1, flags=re.I)
+                  path.write_text(text, encoding='cp1251')
+
+          Path('build/.user.ini').write_text(
+              '; Temporary settings for the legacy PHP application\n'
+              'short_open_tag=On\n'
+              'default_charset=UTF-8\n',
+              encoding='utf-8'
+          )
+          PY
+
+      - name: PHP syntax check
+        shell: bash
+        run: |
+          set -euo pipefail
+          failed=0
+          while IFS= read -r -d '' file; do
+            if ! php -d short_open_tag=1 -l "$file" >/dev/null; then
+              echo "Syntax error: $file"
+              failed=1
+            fi
+          done < <(find build -type f -name '*.php' -print0)
+          exit "$failed"
+
+      - name: Create deployment package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f mystery-of-heroes-php8-candidate.zip
+          (cd build && zip -qr ../mystery-of-heroes-php8-candidate.zip .)
+
+      - name: Upload candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: mystery-of-heroes-php8-candidate
+          path: mystery-of-heroes-php8-candidate.zip
+          if-no-files-found: error
