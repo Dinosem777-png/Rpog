@@ -65,21 +65,23 @@ jobs:
           enter = Path('build/enter.php')
           if enter.exists():
               text = enter.read_text(encoding='cp1251', errors='replace')
-              pattern = re.compile(r"\n\s*\$agent=getenv\('HTTP_USER_AGENT'\);.*?\n\s*if\(\$login!='Copyright'\)\{", re.S)
+              pattern = re.compile(r"\n\s*\$agent=getenv\(\"HTTP_USER_AGENT\"\);.*?\n\s*if\(\$login!='Copyright'\)\{", re.S)
               replacement = "\n        if($login!='Copyright'){"
               patched, count = pattern.subn(replacement, text, count=1)
               if count:
                   enter.write_text(patched, encoding='cp1251')
 
-          # Add a mobile viewport to legacy pages without rewriting their CP1251 text.
-          for path in list(Path('build').rglob('*.php')) + list(Path('build').rglob('*.html')) + list(Path('build').rglob('*.htm')):
-              try:
-                  text = path.read_text(encoding='cp1251', errors='replace')
-                  if 'name="viewport"' not in text.lower() and '<head' in text.lower():
-                      text = re.sub(r'(<head[^>]*>)', r'\1\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', text, count=1, flags=re.I)
-                      path.write_text(text, encoding='cp1251')
-              except Exception:
-                  pass
+          # Add a mobile viewport only to real HTML pages. Avoid config files
+          # whose PHP error strings contain literal <head> markup.
+          mobile_files = {'index.php', 'game.php', 'main.php', 'enter.php', 'reg.php', 'news.php', 'topp.php'}
+          for name in mobile_files:
+              path = Path('build') / name
+              if not path.exists():
+                  continue
+              text = path.read_text(encoding='cp1251', errors='replace')
+              if 'name="viewport"' not in text.lower() and '<head' in text.lower():
+                  text = re.sub(r'(<head[^>]*>)', r'\1\n<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">', text, count=1, flags=re.I)
+                  path.write_text(text, encoding='cp1251')
 
           Path('build/.user.ini').write_text(
               '; Temporary settings for the legacy PHP application\n'
