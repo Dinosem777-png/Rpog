@@ -1,0 +1,10 @@
+<?php
+// Copy this file to conf.local.php on the hosting server and fill in the
+// database values from the hosting control panel. Never commit real passwords.
+
+$base_name = 'YOUR_DB_HOST';
+$base_user = 'YOUR_DB_USER';
+$base_pass = 'YOUR_DB_PASSWORD';
+$db_name   = 'YOUR_DB_NAME';
+
+?>
