@@ -18,7 +18,7 @@ jobs:
       - name: Install PHP 8
         uses: shivammathur/setup-php@v2
         with:
-          php-version: '8.3'
+          php-version: '8.4'
           extensions: mysqli
           coverage: none
 
@@ -49,6 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           cp modernization/compat.php build/compat.php
+          cp modernization/conf.local.php.example build/conf.local.php.example
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -59,6 +60,9 @@ jobs:
           text = conf.read_text(encoding='cp1251', errors='replace')
           if 'compat.php' not in text:
               text = text.replace('<?', '<?php\nrequire_once __DIR__ . "/compat.php";\n', 1)
+          if 'conf.local.php' not in text:
+              marker = 'mysql_select_db($db_name,$data);'
+              text = text.replace(marker, "if (file_exists(__DIR__ . '/conf.local.php')) { require __DIR__ . '/conf.local.php'; }\n" + marker, 1)
           conf.write_text(text, encoding='cp1251')
 
           # Modern phones are supported; remove the original IE-only gate.
